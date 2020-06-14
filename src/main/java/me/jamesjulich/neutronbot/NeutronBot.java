@@ -25,6 +25,7 @@ public class NeutronBot
     public static String guildID;
     public static String voiceChannelID;
     public static String roleID;
+    public static Snowflake botID;
 
     public static ArrayList<Snowflake> meanyFaces = new ArrayList<Snowflake>();
 
@@ -72,24 +73,29 @@ public class NeutronBot
 
         GatewayDiscordClient client = DiscordClient.create(token).login().block();
         VoiceChannel vc = (VoiceChannel) client.getChannelById(Snowflake.of(voiceChannelID)).block();
+        Guild guild = client.getGuildById(Snowflake.of(guildID)).block();
 
-        Collection<Member> startingMembers = getUsersInVoice(vc);
+        Collection<Snowflake> startingMembers = getIDsInVoice(vc);
+
+        botID = client.getSelfId();
 
         //Remove all users in guild and not on VC from role.
-        for (Member m : client.getGuildById(Snowflake.of(guildID)).block().getMembers().toIterable())
+        for (Member m : guild.getMembers().toIterable())
         {
-            if (hasRank(m) && !startingMembers.contains(m))
+            if (hasRank(m) && !startingMembers.contains(m.getId()))
             {
-                info("Removing user " + m.getId() + " from privelleged role.");
+                info("Removing user " + m.getId() + " from privileged role.");
                 m.removeRole(Snowflake.of(roleID)).block();
             }
         }
 
         //Add all users currently in VC to role.
-        for (Member m : startingMembers)
+        for (Snowflake s : startingMembers)
         {
+            Member m = guild.getMemberById(s).block();
             if (!hasRank(m))
             {
+                info("Adding user " + m.getId() + " to privileged role.");
                 m.addRole(Snowflake.of(roleID)).block();
             }
         }
@@ -97,7 +103,7 @@ public class NeutronBot
         //Create a privelleged channel if it doesn't already exist.
         if (!textChannelExists(client.getGuildById(Snowflake.of(guildID)).block()))
         {
-            createChannel(client.getGuildById(Snowflake.of(guildID)).block());
+            createChannel(guild);
         }
 
         //Create event to add/remove people from privelleged role and clear text chat.
@@ -124,7 +130,7 @@ public class NeutronBot
             }
 
             //basically a perm mute
-            if (meanyFaces.contains(event.getCurrent().getUserId()) && !event.getCurrent().isMuted())
+            if (meanyFaces.contains(event.getCurrent().getUserId()) && !event.getCurrent().isMuted() && event.getCurrent().getChannelId().isPresent())
             {
                 event.getCurrent().getMember().block().edit(spec -> {
                     spec.setMute(true);
@@ -132,7 +138,7 @@ public class NeutronBot
             }
 
             //When your friends try to be funny by muting you, but you can code.
-            if (privellegedUsers.contains(event.getCurrent().getUserId().asString()) && event.getCurrent().isMuted() && event.getCurrent().isMuted() && !meanyFaces.contains(event.getCurrent().getUserId()))
+            if (privellegedUsers.contains(event.getCurrent().getUserId().asString()) && event.getCurrent().isMuted() && event.getCurrent().getChannelId().isPresent() && !meanyFaces.contains(event.getCurrent().getUserId()))
             {
                 event.getCurrent().getMember().block().edit(spec -> {
                     spec.setMute(false);
@@ -176,8 +182,15 @@ public class NeutronBot
                     return;
                 }
                 meanyFaces.add(Snowflake.of(cmdArgs[1]));
-                User u = client.getUserById(Snowflake.of(cmdArgs[1])).block();
-                event.getMessage().getChannel().block().createMessage(u.getMention() + ", prepare to face the wrath of Jimmy Neutron: Boy Genius.").block();
+
+                Member member = event.getGuild().block().getMemberById(Snowflake.of(cmdArgs[1])).block();
+                if (userIsInVoice(member))
+                {
+                    member.edit(spec -> {
+                        spec.setMute(true);
+                    }).block();
+                }
+                event.getMessage().getChannel().block().createMessage(member.getMention() + ", prepare to face the wrath of Jimmy Neutron: Boy Genius.").block();
             }
             else if (event.getMessage().getContent().startsWith("*forgive"))
             {
@@ -201,9 +214,14 @@ public class NeutronBot
                     return;
                 }
                 meanyFaces.remove(Snowflake.of(cmdArgs[1]));
-                event.getGuild().block().getMemberById(Snowflake.of(cmdArgs[1])).block().edit(spec -> {
-                    spec.setMute(false);
-                }).block();
+
+                Member member = event.getGuild().block().getMemberById(Snowflake.of(cmdArgs[1])).block();
+                if (userIsInVoice(member))
+                {
+                    member.edit(spec -> {
+                        spec.setMute(false);
+                    }).block();
+                }
                 event.getMessage().getChannel().block().createMessage("User forgiven.").block();
             }
         });
@@ -233,15 +251,19 @@ public class NeutronBot
             spec.setPosition(guild.getChannelById(Snowflake.of(voiceChannelID)).block().getPosition().block());
         }).block().getId();
 
+        //Allow bot to see channel so it can continue editing permissions/delete the channel eventually.
+        guild.getChannelById(newChannelID).block().addMemberOverwrite(botID, PermissionOverwrite.forRole(Snowflake.of(roleID),
+                PermissionSet.of(Permission.VIEW_CHANNEL),
+                PermissionSet.none())).block();
+
+        guild.getChannelById(newChannelID).block().addRoleOverwrite(Snowflake.of(roleID), PermissionOverwrite.forRole(Snowflake.of(roleID),
+                PermissionSet.of(Permission.VIEW_CHANNEL),
+                PermissionSet.none())).block();
+
         //Block @everyone from seeing channel. The @everyone role has the same ID as the guild, per discord api docs.
         guild.getChannelById(newChannelID).block().addRoleOverwrite(Snowflake.of(guildID), PermissionOverwrite.forRole(Snowflake.of(guildID),
                 PermissionSet.none(),
                 PermissionSet.of(Permission.VIEW_CHANNEL))).block();
-
-        //Allow privileged role to see channel.
-        guild.getChannelById(newChannelID).block().addRoleOverwrite(Snowflake.of(roleID), PermissionOverwrite.forRole(Snowflake.of(roleID),
-                PermissionSet.of(Permission.VIEW_CHANNEL),
-                PermissionSet.none())).block();
     }
 
     public static boolean textChannelExists(Guild guild)
@@ -289,10 +311,22 @@ public class NeutronBot
         return (event.getCurrent().getChannelId().isPresent() && event.getCurrent().getChannelId().get().equals(Snowflake.of(voiceChannelID)));
     }
 
+    public static boolean userIsInVoice(Member member)
+    {
+        return member.getVoiceState().block() != null;
+    }
+
     public static Collection<Member> getUsersInVoice(VoiceChannel vc)
     {
         return makeCollection(vc.getVoiceStates().map(vs -> {
             return vs.getMember().block();
+        }).toIterable());
+    }
+
+    public static Collection<Snowflake> getIDsInVoice(VoiceChannel vc)
+    {
+        return makeCollection(vc.getVoiceStates().map(vs -> {
+            return vs.getMember().block().getId();
         }).toIterable());
     }
 
