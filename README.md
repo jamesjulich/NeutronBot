@@ -1,15 +1,16 @@
 # NeutronBot
 NeutronBot is a small Discord bot for use on friend servers. It provides a few useful functions for the server it is configured for. Currently, the main function of NeutronBot is to create a text channel only available to users in voice chat. This is incredibly useful, and its something I've wanted for a while. 
 
-Imagine you're in a voice channel with others, and you want to send a link to only the people in the channel. You don't want to create a group DM because you're lazy, and you also don't want to send the link to public chat (because you don't want to spam other members with links they won't care about). This is main problem that NeutronBot solves.
+Imagine you're in a voice channel with others, and you want to send a link to only the people in the channel. You don't want to create a group DM because you're lazy, and you also don't want to send the link to public chat (because you don't want to spam other members with links they won't care about). This is main problem that NeutronBot solves. When a user joins the target voice channel, they recieve a special role that gives them access to a text channel. This text channel is visible only to members in the voice channel. When the user leaves the voice channel, the special role is removed, and the text channel becomes invisible to them again. When the voice channel becomes empty, NeutronBot deletes and replaces the special text channel to give it a clean slate.
 
-There's also a few fun commands for the person running the instance. I'll let you discover those in the code on your own :P
+There's also a few fun commands for the person running the instance of NeutronBot. I'll let you discover those in the code on your own :P
 
 ## Installation & Running
 NeutronBot is distributed as a standard jar file. To run the bot, simply run
 
 ```bash
-java -jar <insertBotJarNameHere.jar>
+screen
+java -jar <insertBotJarNameHere>.jar
 ```
 
 If you want to run the bot in the background 24/7, you can daemonize NeutronBot on a Linux server by running the command 'screen' and then running the jar file as shown above in the new window.
